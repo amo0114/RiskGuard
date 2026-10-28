@@ -54,7 +54,8 @@ func newDoctorEnv(t *testing.T, readyMode, label string) *doctorEnv {
 	}
 	e.cfg = write("config.yaml", strings.NewReplacer(
 		"127.0.0.1:4101", strings.TrimPrefix(e.admin.URL, "http://"),
-		"http://127.0.0.1:4000", e.up.URL, "http://10.88.0.2:8088", e.cls.URL,
+		// The internal and public example configs name different classifier endpoints.
+		"http://127.0.0.1:4000", e.up.URL, "http://10.88.0.2:8088", e.cls.URL, "http://127.0.0.1:8088", e.cls.URL,
 		"/etc/riskguard/hmac.key", write("hmac.key", strings.Repeat("h", 48)),
 		"/etc/riskguard/guard.key", write("guard.key", "synthetic-key"),
 		"/etc/riskguard/console.token", write("console.token", strings.Repeat("t", 40)),
