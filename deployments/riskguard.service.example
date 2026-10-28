@@ -1,0 +1,61 @@
+# /etc/systemd/system/riskguard.service  (install only with an approved change id)
+[Unit]
+Description=Risk Guard content guard in front of New API (127.0.0.1:4100 -> 127.0.0.1:4000)
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=riskguard
+Group=riskguard
+# Refuse to start on a bad config/policy (and on enforce + draft policy).
+ExecStartPre=/usr/local/bin/riskguard -config /etc/riskguard/config.yaml -check
+ExecStart=/usr/local/bin/riskguard -config /etc/riskguard/config.yaml
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=35
+
+# /var/lib/riskguard (spool) owned by the service user, 0700; stale spool files are removed on start.
+StateDirectory=riskguard
+StateDirectoryMode=0700
+UMask=0077
+
+# Least privilege: no root, no capabilities, no docker.sock, read-only system.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadOnlyPaths=/etc/riskguard
+
+# Network: loopback (OpenResty in, New API out) and the WireGuard classifier peer only.
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8 ::1
+# IPAddressAllow=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+# Resource budget on a 1.7 GB host (candidates; confirm in W10 measurements).
+MemoryHigh=256M
+MemoryMax=384M
+TasksMax=256
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

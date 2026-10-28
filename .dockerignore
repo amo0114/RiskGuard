@@ -1,0 +1,6 @@
+# The image only needs go.mod/go.sum, cmd/ and internal/ (console dist is committed there).
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/

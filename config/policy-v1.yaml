@@ -1,0 +1,42 @@
+# policy-v1 — DRAFT, not approved for enforce.
+#
+# Classifier labels/categories are evidence; this file decides. Until the W05 evaluation
+# (evals/scenarios.jsonl, >=60 human-reviewed cases) passes and the user approves, no category is
+# mapped to "deny": every Unsafe result is "review". Flipping a category to "deny" is a policy
+# change that needs its own approval and evaluation evidence.
+version: "policy-v1-draft"
+
+labels:
+  Safe: allow
+  Controversial: review
+  Unknown: review            # unparseable/unknown classifier output is never treated as Safe
+
+# Qwen3Guard-Gen official categories. Evidence: docs/reports/w05-guard-model-eval.md
+# (local Qwen3Guard-Gen-0.6B Q4_K_M, 46 authored + 450 XSTest cases). Hits are
+# [on expected-allow, on expected-block] for Unsafe labels.
+unsafe_categories:
+  "Violent": review                        # [5, 89]  deny candidate
+  "Non-violent Illegal Acts": review       # [1, 26]  deny candidate
+  "Sexual Content or Sexual Acts": review  # [0, 3]   deny candidate (upstream baseline)
+  "PII": allow                             # [7, 13]  fires on redaction/test-data code tasks; logged only
+  "Suicide & Self-Harm": review            # [0, 7]
+  "Unethical Acts": review                 # [6, 22]  too noisy to deny
+  "Jailbreak": review                      # prompt-injection research and tests trigger this
+  "Politically Sensitive Topics": allow    # not an upstream-policy violation by itself
+  "Copyright Violation": allow             # quoting/refactoring licensed code is normal coding work
+unsafe_default: review
+
+# model_text protocols forwarded WITHOUT content review (user-approved T0-only exceptions).
+# Proposed: vectors/reranking carry text but produce no generated content.
+t0_only_protocols:
+  - embeddings
+  - rerank
+
+# uninspectable / unknown routes allowed in enforce (user-approved, recorded as unprotected).
+# Empty: WebSocket, multimodal, task plugins and unregistered routes are rejected in enforce.
+coverage_exceptions: []
+
+enforce:
+  review: reject             # 422 REVIEW_REQUIRED; "forward" only for user-approved non-strict use
+  no_inspectable_input: forward   # e.g. a turn that only carries tool results/system text
+  unparseable: reject        # body our scanner cannot read is not forwarded unreviewed

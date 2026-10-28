@@ -1,0 +1,32 @@
+# Risk Guard as a container.
+#   RG_ETC=/etc/riskguard RG_STATE=/var/lib/riskguard RG_UID=$(id -u riskguard) RG_GID=$(id -g riskguard) \
+#     docker compose -f deployments/docker/compose.yaml up -d --build
+# RG_ETC holds config.yaml, the policy and key files (paths inside config stay /etc/riskguard/...);
+# RG_STATE must be writable by RG_UID and holds the spool and console state (block-reply switch).
+name: riskguard
+services:
+  riskguard:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    image: riskguard:local
+    restart: unless-stopped
+    # Host network: config requires loopback listeners/upstream and an IP-literal classifier
+    # endpoint, so container DNS names are rejected by design.
+    network_mode: host
+    user: "${RG_UID:-65532}:${RG_GID:-65532}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Shutdown drains audits for up to 30s; same budget as TimeoutStopSec=35.
+    stop_grace_period: 35s
+    mem_limit: 384m
+    pids_limit: 256
+    ulimits:
+      nofile: 8192
+    volumes:
+      - ${RG_ETC:-./etc}:/etc/riskguard:ro
+      - ${RG_STATE:-./state}:/var/lib/riskguard
+    logging:
+      driver: local
+      options: {max-size: 50m, max-file: "5"}

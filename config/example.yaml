@@ -1,0 +1,81 @@
+# Safe placeholders only. Deployment copy: /etc/riskguard/config.yaml (root:riskguard 0640).
+# Every number here is a candidate to be confirmed by W05/W10 measurements, not an approved value.
+listener: "127.0.0.1:4100"
+admin_listener: "127.0.0.1:4101"
+new_api_upstream: "http://127.0.0.1:4000"
+mode: "shadow"                         # disabled | shadow | enforce (enforce refuses a -draft policy)
+
+request:
+  max_body_bytes: 52428800             # 50 MiB, same as OpenResty client_max_body_size 50m
+  memory_spool_threshold_bytes: 1048576
+  spool_max_memory_bytes: 33554432     # 32 MiB across all request buffers, including disk scratch
+  spool_dir: "/var/lib/riskguard/spool"
+  spool_max_total_bytes: 268435456     # 256 MiB of temp files across all requests
+  spool_max_files: 32
+  extract_concurrency: 4
+  extract_queue: 16
+  # Qwen3Guard-Gen runs on a local/private classifier endpoint (e.g. llama.cpp server).
+  # moderation template, 128 reserved for output (measured locally, W05). Worst case measured is
+  # hex at ~0.88 tokens/byte: 1536 bytes -> ~1357 tokens, which fits; 3072 bytes overflowed.
+  primary_budget_bytes: 1536
+  # W05: agent system prompts alone trigger Controversial/Jailbreak; they are not sent (coverage is
+  # logged as SYSTEM_NOT_INSPECTED). Raise only with new evaluation evidence.
+  context_budget_bytes: 0
+  review_per_ip_per_minute: 120        # pre-auth classifier budget, not a user rate limit
+  review_per_credential_per_minute: 120
+
+model_guard:
+  endpoint: "http://127.0.0.1:8088"    # Local or private endpoint; hostnames/public IPs are rejected
+  model: "Qwen3Guard-Gen-0.6B"
+  api_key_file: "/etc/riskguard/guard.key"
+  timeout: "8s"
+  # attempt_timeout: "4s"             # optional: retry one timeout/5xx within timeout if >=1s is left
+  max_concurrency: 2                   # classifier calls in flight, not model requests
+  max_queue: 4
+  queue_wait: "2s"
+  max_tokens: 128
+  cache_ttl: "10m"
+  cache_entries: 2048
+
+# Optional, shadow mode only: a local System One judge (jevos, Jev wire format) asked alongside the
+# classifier. Its probabilities go to the audit log for evaluation and never change a decision.
+# aux_judge:
+#   endpoint: "http://127.0.0.1:8017"
+#   model: "jevos-v5"
+#   api_key_file: "/etc/riskguard/aux-judge.key"
+#   timeout: "2s"
+#   max_concurrency: 1
+
+policy_file: "/etc/riskguard/policy-v1.yaml"
+hmac_key_file: "/etc/riskguard/hmac.key"   # >=32 random bytes, 0600, never in the repo
+
+# Read-only dashboard at http://127.0.0.1:4101/console/ (reach it over an SSH tunnel or the
+# private console vhost). Remove token_file to disable.
+console:
+  token_file: "/etc/riskguard/console.token"        # >=32 random bytes, root:riskguard 0640
+  state_file: "/var/lib/riskguard/console-stats.json" # 7 days of per-minute counters, no text
+  session_ttl: "12h"
+  # Named accounts (riskguard -new-account NAME -roles reviewer,admin). The shared token above only
+  # sees metadata; sample text, reviews and deletion need a named account with the role.
+  # accounts_file: "/etc/riskguard/console-accounts.yaml"
+
+# Sample collection for human review: keeps the redacted, AES-GCM-encrypted text the classifier
+# actually saw (never the body, history or replies) for a random baseline plus blocked/failed
+# requests. Off by default; needs console accounts_file. Failures stop collection only.
+samples:
+  enabled: false
+  sqlite_path: "/var/lib/riskguard/samples/samples.db"
+  encryption_key_file: "/etc/riskguard/sample-storage.key"  # >=32 random bytes, distinct from every other key
+  dedup_key_file: "/etc/riskguard/sample-dedup.key"         # >=32 random bytes
+  max_text_bytes: 4096          # longer inspected text keeps metadata only
+  base_probability: 0.10        # random baseline, drawn before the classifier answers
+  base_daily_cap: 2000
+  enriched_daily_cap: 3000      # review / deny / unavailable / unsupported
+  queue_items: 512
+  queue_bytes: 4194304
+  queue_max_age: "5s"
+  content_retention: "168h"     # text: 7 days
+  review_retention: "720h"      # human labels: 30 days
+  audit_retention: "2160h"      # who viewed/labeled/deleted: 90 days
+  max_db_bytes: 1073741824      # stop collecting past 1 GiB (db + wal)
+  min_free_bytes: 2147483648    # stop collecting below 2 GiB free disk

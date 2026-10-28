@@ -1,0 +1,31 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.key
+*.token
+*.pem
+
+# Go build & test artifacts
+/out/
+*.test
+*.prof
+
+# Frontend build & dependencies
+web/node_modules/
+web/dist/
+
+# Spool and state
+spool/
+state/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.log
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
