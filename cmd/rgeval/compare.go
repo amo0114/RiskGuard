@@ -137,6 +137,8 @@ func unreplayable(base, cand *policy.Policy) []string {
 		p.Version, p.Labels, p.UnsafeCategories, p.UnsafeDefault = "", nil, nil, ""
 		p.Enforce.Review, p.Enforce.NoInspectableInput, p.Enforce.Unparseable = "", "", ""
 		p.Enforce.BlockReplies = nil // response form only; reported as a note
+		// Order does not change behaviour.
+		p.T0OnlyProtocols, p.CoverageExceptions = sortedCopy(p.T0OnlyProtocols), sortedCopy(p.CoverageExceptions)
 		return p
 	}
 	if reflect.DeepEqual(strip(*base), strip(*cand)) {
@@ -165,9 +167,11 @@ func compare(rows []result, base, cand *policy.Policy) comparison {
 	c := comparison{Rows: len(rows), Excluded: map[string]int{}, ChangedBy: map[string]int{}}
 	c.Base.Version, c.Candidate.Version = base.Version, cand.Version
 	// Duplicate ids are one case counted several times; none of them may count as independent.
+	// Counted over the whole file, so a test row whose id also appears in dev (a leak out of the
+	// held-out split) is caught too.
 	ids := map[string]int{}
 	for _, r := range rows {
-		if gateReason(r) == "" {
+		if r.ID != "" {
 			ids[r.ID]++
 		}
 	}

@@ -190,6 +190,14 @@ func TestCompareAdmission(t *testing.T) {
 	if c.Gated != 0 || c.Excluded["duplicate_id"] != 400 || c.Base.Verdict != verdictInsufficient {
 		t.Errorf("duplicates: gated %d %v %s", c.Gated, c.Excluded, c.Base.Verdict)
 	}
+	// The same case in dev and in the held-out test split: a leak, so the test copy cannot count.
+	rs = rows(300, 0, 100)
+	dup := rs[0]
+	dup.Split = "dev"
+	if c := compare(append(rs, dup), base, base); c.Excluded["duplicate_id"] != 1 || c.Excluded["not_test_split"] != 1 ||
+		c.Base.Verdict == verdictPass || c.Candidate.Verdict == verdictPass {
+		t.Errorf("cross-split duplicate: %v %s", c.Excluded, c.Candidate.Verdict)
+	}
 	rs = append(rows(300, 0, 100), rows(1, 0, 0)...) // n0 twice
 	if c := compare(rs, base, base); c.Excluded["duplicate_id"] != 2 || c.Base.Verdict != verdictInsufficient {
 		t.Errorf("one duplicate pair: %v %s", c.Excluded, c.Base.Verdict)
@@ -213,6 +221,13 @@ func TestCompareUnreplayablePolicyChanges(t *testing.T) {
 			!strings.Contains(strings.Join(c.Candidate.VerdictReason, ";"), "cannot be replayed") {
 			t.Errorf("%s: base %s candidate %s %v", name, c.Base.Verdict, c.Candidate.Verdict, c.Candidate.VerdictReason)
 		}
+	}
+	// Reordering a list changes nothing.
+	reordered := loadPolicy(t, func(s string) string {
+		return strings.Replace(s, "  - embeddings\n  - rerank\n", "  - rerank\n  - embeddings\n", 1)
+	})
+	if c := compare(rows(300, 0, 100), base, reordered); c.Candidate.Verdict != verdictPass {
+		t.Errorf("reordered t0 list: %s %v", c.Candidate.Verdict, c.Candidate.VerdictReason)
 	}
 	// Block replies change only the response form: noted, not a reason to withhold PASS.
 	replies := loadPolicy(t, func(s string) string {
