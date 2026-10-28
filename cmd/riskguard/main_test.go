@@ -246,3 +246,31 @@ func TestExportDatasetWritesScenariosWithoutIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+// -check runs next to a live instance (upgrade pre-flight): it must validate without touching
+// that instance's spool files, and still refuse a draft policy in enforce mode.
+func TestCheckLeavesSpoolAlone(t *testing.T) {
+	e := newDoctorEnv(t, "shadow", "Safe")
+	live := filepath.Join(e.spool, "rg-spool-live")
+	if err := os.WriteFile(live, []byte("in flight"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(cfg string) (string, error) {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRiskguardProcess$", "--", "-config", cfg, "-check")
+		cmd.Env = append(os.Environ(), "RISKGUARD_TEST_PROCESS=1")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	if out, err := run(e.cfg); err != nil || !strings.Contains(out, "config ok") {
+		t.Fatalf("-check: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Error("-check removed a live spool file")
+	}
+	raw, _ := os.ReadFile(e.cfg)
+	enforce := filepath.Join(e.dir, "enforce.yaml")
+	os.WriteFile(enforce, []byte(strings.Replace(string(raw), `mode: "shadow"`, `mode: "enforce"`, 1)), 0o600)
+	if out, err := run(enforce); err == nil || !strings.Contains(out, "draft") {
+		t.Errorf("enforce with a draft policy passed -check:\n%s", out)
+	}
+}
