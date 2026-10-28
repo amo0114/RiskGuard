@@ -33,6 +33,19 @@ export type Stats = {
   latency_bounds_ms: number[]
   top_reasons: KV[]
   categories: KV[]
+  coverage: Coverage
+}
+
+// Model requests by coverage state; tracked = sum(states). untracked: guarded requests recorded
+// before coverage tracking, which carry no coverage data.
+export type Coverage = {
+  tracked: number
+  untracked: number
+  since?: number
+  states: Record<string, number>
+  reasons: KV[]
+  user_text: Record<string, number>
+  user_text_ok: number
 }
 
 export type Health = {

@@ -134,6 +134,7 @@ func (h *Handler) guarded(rec *recorder, r *http.Request, rt routes.Result, ev *
 		return
 	}
 	ev.Coverage, ev.InspectedChars = string(sel.Coverage), sel.InspectedChars
+	ev.UserText = userText(sel)
 	ev.Model = modelOf(sel.Model, r.URL.Path)
 	if h.samples != nil { // only the classifier input itself may be sampled, never the body or spool
 		*cand = h.samples.Candidate(sel.Text(), sel.Truncated)
@@ -210,6 +211,20 @@ func (h *Handler) decide(rec *recorder, r *http.Request, rt routes.Result, ev *a
 		return
 	}
 	writeError(rec, rt.Protocol, a.Status, a.Code, a.Message, ev.TraceID)
+}
+
+// userText says whether the latest user text was found and kept whole. A body the extractor
+// could not parse says nothing about it, so those stay empty.
+func userText(sel extract.Selection) string {
+	switch {
+	case sel.Primary != "" && sel.PrimaryTruncated:
+		return "truncated"
+	case sel.Primary != "":
+		return "complete"
+	case sel.Coverage != extract.Unsupported || sel.Reason == "MEDIA_ONLY" || sel.Reason == "NO_INSPECTABLE_INPUT":
+		return "absent"
+	}
+	return ""
 }
 
 func recordClassification(ev *audit.Event, res classifier.Result, hit bool) {

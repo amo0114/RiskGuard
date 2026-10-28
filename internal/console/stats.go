@@ -38,6 +38,41 @@ type bucket struct {
 	Labels     map[string]int `json:"labels,omitempty"`
 	Categories map[string]int `json:"categories,omitempty"`
 	Protocols  map[string]int `json:"protocols,omitempty"`
+	// Coverage* and UserText* are absent from minutes written before coverage tracking existed;
+	// Summary reports those requests as untracked instead of reading them as zero coverage.
+	Coverage   map[string]int `json:"coverage,omitempty"`     // coverage state -> model requests
+	CovReasons map[string]int `json:"cov_reasons,omitempty"`  // "state:REASON" (primary reason only)
+	UserText   map[string]int `json:"user_text,omitempty"`    // complete | truncated | absent
+	UserTextOK int            `json:"user_text_ok,omitempty"` // complete and classified ok
+}
+
+// Coverage states of a model request. Exactly one applies; requests on admin/read routes have none.
+const (
+	CovFull        = "full_selected_inputs" // the selected inputs were inspected whole
+	CovPartial     = "partial_context"      // inspected, but some input was not (see reason)
+	CovUnsupported = "unsupported"          // the request could not be inspected
+	CovExempt      = "exempt"               // approved T0-only protocol or coverage exception
+	CovNotReached  = "not_inspected"        // rejected or failed before inspection (limits, buffers)
+)
+
+// coverageState places a guarded event in one coverage state, with its primary reason.
+func coverageState(e audit.Event) (state, reason string) {
+	switch e.RouteClass {
+	case "model_text", "model_uninspectable", "unknown":
+	default:
+		return "", ""
+	}
+	switch {
+	case e.Coverage == "t0_only" || e.ReasonCode == "APPROVED_EXCEPTION":
+		return CovExempt, e.ReasonCode
+	case e.Coverage == "":
+		return CovNotReached, e.ReasonCode
+	case e.Coverage == CovUnsupported:
+		return CovUnsupported, e.ReasonCode
+	case e.Coverage == CovPartial:
+		return CovPartial, e.CoverageReason
+	}
+	return e.Coverage, ""
 }
 
 // Stats keeps 7 days of per-minute aggregates and the latest guarded events (metadata only, the
@@ -157,6 +192,18 @@ func (s *Stats) Add(e audit.Event) {
 		return
 	}
 	b.Guarded++
+	if state, reason := coverageState(e); state != "" {
+		inc(&b.Coverage, state)
+		if reason != "" && state != CovFull {
+			inc(&b.CovReasons, state+":"+reason)
+		}
+		if e.UserText != "" {
+			inc(&b.UserText, e.UserText)
+		}
+		if e.UserText == "complete" && e.ClassifierStatus == "ok" {
+			b.UserTextOK++
+		}
+	}
 	s.addDims(e)
 	inc(&b.Decisions, e.Decision)
 	inc(&b.Reasons, e.ReasonCode)
@@ -263,18 +310,32 @@ func (s *Stats) recent() []audit.Event {
 
 // Summary is the console's view of one time range.
 type Summary struct {
-	From        time.Time `json:"from"`
-	To          time.Time `json:"to"`
-	StepSeconds int       `json:"step_seconds"`
-	Totals      bucket    `json:"totals"`
-	Series      []bucket  `json:"series"`
-	PeakTurns   int       `json:"peak_new_turns_per_minute"`
-	LatencyP50  int64     `json:"latency_p50_ms"`
-	LatencyP95  int64     `json:"latency_p95_ms"`
-	LatencyP99  int64     `json:"latency_p99_ms"`
-	Bounds      []int64   `json:"latency_bounds_ms"`
-	TopReasons  []kv      `json:"top_reasons"`
-	Categories  []kv      `json:"categories"`
+	From        time.Time       `json:"from"`
+	To          time.Time       `json:"to"`
+	StepSeconds int             `json:"step_seconds"`
+	Totals      bucket          `json:"totals"`
+	Series      []bucket        `json:"series"`
+	PeakTurns   int             `json:"peak_new_turns_per_minute"`
+	LatencyP50  int64           `json:"latency_p50_ms"`
+	LatencyP95  int64           `json:"latency_p95_ms"`
+	LatencyP99  int64           `json:"latency_p99_ms"`
+	Bounds      []int64         `json:"latency_bounds_ms"`
+	TopReasons  []kv            `json:"top_reasons"`
+	Categories  []kv            `json:"categories"`
+	Coverage    CoverageSummary `json:"coverage"`
+}
+
+// CoverageSummary counts model requests by coverage state. Tracked is the sum of States;
+// Untracked counts guarded requests in minutes recorded before coverage tracking (or by an older
+// version), which have no coverage data at all.
+type CoverageSummary struct {
+	Tracked    int            `json:"tracked"`
+	Untracked  int            `json:"untracked"`
+	Since      int64          `json:"since,omitempty"` // first minute in the window with coverage data
+	States     map[string]int `json:"states"`
+	Reasons    []kv           `json:"reasons"`
+	UserText   map[string]int `json:"user_text"`
+	UserTextOK int            `json:"user_text_ok"`
 }
 
 type kv struct {
@@ -307,13 +368,31 @@ func (s *Stats) Summary(window, step time.Duration) Summary {
 		}
 		merge(&sum.Series[(m-first)/stepMin], b)
 		merge(&sum.Totals, b)
+		if b.Coverage == nil {
+			sum.Coverage.Untracked += b.Guarded
+		} else if sum.Coverage.Since == 0 || m < sum.Coverage.Since {
+			sum.Coverage.Since = m
+		}
 	}
 	sum.Totals.Minute = first
 	for i := range sum.Series {
 		// series points carry counters only; breakdowns are in totals
 		sum.Series[i].Decisions, sum.Series[i].Reasons, sum.Series[i].Labels = nil, nil, nil
 		sum.Series[i].Categories, sum.Series[i].Protocols, sum.Series[i].Latency = nil, nil, nil
+		sum.Series[i].Coverage, sum.Series[i].CovReasons, sum.Series[i].UserText = nil, nil, nil
 	}
+	c := &sum.Coverage
+	c.States, c.UserText, c.UserTextOK = sum.Totals.Coverage, sum.Totals.UserText, sum.Totals.UserTextOK
+	for _, n := range c.States {
+		c.Tracked += n
+	}
+	if c.States == nil {
+		c.States = map[string]int{}
+	}
+	if c.UserText == nil {
+		c.UserText = map[string]int{}
+	}
+	c.Reasons = sorted(sum.Totals.CovReasons)
 	sum.LatencyP50 = percentile(sum.Totals.Latency, .50)
 	sum.LatencyP95 = percentile(sum.Totals.Latency, .95)
 	sum.LatencyP99 = percentile(sum.Totals.Latency, .99)
@@ -331,6 +410,7 @@ func merge(dst, src *bucket) {
 	dst.Enforced += src.Enforced
 	dst.Status5xx += src.Status5xx
 	dst.ClsErrors += src.ClsErrors
+	dst.UserTextOK += src.UserTextOK
 	if src.Latency != nil {
 		if dst.Latency == nil {
 			dst.Latency = make([]int, len(latencyBounds)+1)
@@ -342,6 +422,7 @@ func merge(dst, src *bucket) {
 	for _, p := range []struct{ d, s *map[string]int }{
 		{&dst.Decisions, &src.Decisions}, {&dst.Reasons, &src.Reasons}, {&dst.Labels, &src.Labels},
 		{&dst.Categories, &src.Categories}, {&dst.Protocols, &src.Protocols},
+		{&dst.Coverage, &src.Coverage}, {&dst.CovReasons, &src.CovReasons}, {&dst.UserText, &src.UserText},
 	} {
 		for k, v := range *p.s {
 			if *p.d == nil {
