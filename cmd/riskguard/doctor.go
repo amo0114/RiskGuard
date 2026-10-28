@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,8 +104,16 @@ func runDoctor(w io.Writer, cfgPath string, probe bool, entries []string) int {
 
 func (d *doctor) checkPolicy(cfg *config.Config) {
 	pol, err := policy.Load(cfg.PolicyFile)
-	if err != nil {
+	switch {
+	case err != nil && cfg.Mode == "disabled":
+		// Not loaded while review is off (-check passes); it would fail once shadow/enforce is on.
+		d.report(docWarn, "policy", "not used while disabled, but would fail to load once review is enabled: "+err.Error())
+		return
+	case err != nil:
 		d.report(docFail, "policy", err.Error())
+		return
+	case cfg.Mode == "disabled":
+		d.report(docNotVerified, "policy", pol.Version+" loads, but is not used while disabled")
 		return
 	}
 	draft := strings.HasSuffix(pol.Version, "-draft")
@@ -156,7 +165,7 @@ func (d *doctor) checkSecretFiles(cfg *config.Config) {
 	case len(loose) > 0:
 		d.report(docWarn, "secret files", strings.Join(loose, "; "))
 	default:
-		d.report(docPass, "secret files", fmt.Sprintf("%d file(s), none accessible to other users", n))
+		d.report(docPass, "secret files", fmt.Sprintf("%d file(s) with no permissions for other users; group access follows the deployment's trust boundary", n))
 	}
 }
 
@@ -201,7 +210,9 @@ func (d *doctor) checkRunning(cfg *config.Config) {
 		d.report(docNotVerified, "classifier health", "no running instance to ask")
 		return
 	}
-	if ready.Mode != cfg.Mode {
+	if ready.Status != "ready" {
+		d.report(docWarn, "running instance", fmt.Sprintf("answered but reports status %q, not ready", ready.Status))
+	} else if ready.Mode != cfg.Mode {
 		d.report(docWarn, "running instance", fmt.Sprintf("running in %s but the config says %s: restart to apply", ready.Mode, cfg.Mode))
 	} else {
 		d.report(docPass, "running instance", "ready, mode "+ready.Mode)
@@ -225,7 +236,7 @@ func (d *doctor) checkRunning(cfg *config.Config) {
 		d.report(docWarn, "classifier health", fmt.Sprintf("last call failed (%s) at %s; last success %s",
 			h.LastFailureStatus, h.LastFailure.Format(time.RFC3339), stamp(h.LastOK)))
 	default:
-		d.report(docPass, "classifier health", "last success "+stamp(h.LastOK))
+		d.report(docPass, "classifier health", "last recorded success "+stamp(h.LastOK)+"; not a live check (-doctor-probe sends one)")
 	}
 }
 
@@ -267,20 +278,51 @@ func (d *doctor) probeClassifier(cfg *config.Config, sec *config.Secrets) {
 	}
 }
 
-// probeEntry sends one unauthenticated GET. A trace header shows the request passed through a
-// Risk Guard; it cannot show that other entries do.
-func (d *doctor) probeEntry(u string) {
-	resp, err := d.client.Get(u)
+// entryURL accepts only a plain http(s) URL: no user info (Go would send it as Basic auth), no
+// query or fragment (tokens travel there). shown is safe to print in either case.
+func entryURL(raw string) (u *url.URL, shown string, err error) {
+	u, err = url.Parse(raw)
 	if err != nil {
-		d.report(docFail, "entry probe", u+": "+err.Error())
+		return nil, "(unparseable URL)", errors.New("not a URL")
+	}
+	shown = (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return nil, shown, errors.New("only http and https are probed")
+	case u.Host == "":
+		return nil, shown, errors.New("no host")
+	case u.User != nil:
+		return nil, shown, errors.New("user info would be sent as credentials; the probe is unauthenticated")
+	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		return nil, shown, errors.New("query and fragment may carry tokens; give a plain path such as /api/status")
+	}
+	return u, shown, nil
+}
+
+// probeEntry sends one unauthenticated GET. The trace header shows the response passed through
+// something that sets it, normally a Risk Guard; it is an observation, not proof of origin, and
+// says nothing about other entries.
+func (d *doctor) probeEntry(raw string) {
+	u, shown, err := entryURL(raw)
+	if err != nil {
+		d.report(docFail, "entry probe", shown+": not sent: "+err.Error())
+		return
+	}
+	resp, err := d.client.Get(u.String())
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the cause without the URL
+		}
+		d.report(docFail, "entry probe", shown+": "+err.Error())
 		return
 	}
 	resp.Body.Close()
 	if resp.Header.Get(proxy.TraceHeader) == "" {
-		d.report(docFail, "entry probe", fmt.Sprintf("%s answered %d without %s: this entry does not go through Guard", u, resp.StatusCode, proxy.TraceHeader))
+		d.report(docFail, "entry probe", fmt.Sprintf("%s answered %d without %s: this entry does not go through Guard", shown, resp.StatusCode, proxy.TraceHeader))
 		return
 	}
-	d.report(docPass, "entry probe", fmt.Sprintf("%s answered %d through a Risk Guard (%s present)", u, resp.StatusCode, proxy.TraceHeader))
+	d.report(docPass, "entry probe", fmt.Sprintf("%s answered %d with %s observed (an observation, not proof of origin)", shown, resp.StatusCode, proxy.TraceHeader))
 }
 
 func (d *doctor) getJSON(u string, v any) error {
