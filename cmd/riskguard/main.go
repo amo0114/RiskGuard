@@ -32,7 +32,14 @@ func main() {
 	newAccount := flag.String("new-account", "", "print a new console account token and its accounts_file entry, then exit")
 	roles := flag.String("roles", "", "comma-separated roles for -new-account: reviewer, admin")
 	exportDir := flag.String("export-dataset", "", "write labeled samples to this new directory as rgeval scenarios, then exit")
+	doctorRun := flag.Bool("doctor", false, "check the deployment read-only (config, policy, file modes, running instance, upstream), then exit")
+	doctorProbe := flag.Bool("doctor-probe", false, "with -doctor: also send one synthetic classifier request and GET each -probe-url")
+	var probeURLs stringList
+	flag.Var(&probeURLs, "probe-url", "with -doctor-probe: a public entry URL to check for the trace header (repeatable)")
 	flag.Parse()
+	if *doctorRun {
+		os.Exit(runDoctor(os.Stdout, *cfgPath, *doctorProbe, probeURLs))
+	}
 	if *newAccount != "" {
 		var rs []string
 		if *roles != "" {
