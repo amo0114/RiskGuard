@@ -90,7 +90,14 @@ function Kpi({
   )
 }
 
-function CoverageSection({ cov }: { cov: Coverage }) {
+function CoverageSection({ cov, mode }: { cov: Coverage; mode: Summary["mode"] }) {
+  if (mode === "disabled") {
+    return (
+      <Section title="审查覆盖">
+        <p className="text-sm text-muted-foreground">审查已停用，不计算覆盖率。</p>
+      </Section>
+    )
+  }
   const states: Slice[] = COVERAGE_STATE_ORDER.filter((k) => cov.states[k]).map((k) => ({
     key: k,
     name: COVERAGE_STATES[k].name,
@@ -111,12 +118,12 @@ function CoverageSection({ cov }: { cov: Coverage }) {
   return (
     <Section
       title="审查覆盖"
-      hint="每个模型请求只计一种状态。“部分审查”不代表最新用户输入没审：它多半是历史或系统提示词未送审，见右侧原因"
+      hint="表示送检内容的完整程度，不等于分类器成功率，更不等于风险识别准确率。每个模型请求只计一种状态"
     >
-      {cov.untracked > 0 && (
+      {cov.legacy_unknown > 0 && (
         <p className="mb-3 text-xs text-muted-foreground">
-          另有 {fmt(cov.untracked)} 个受审查请求发生在覆盖统计启用之前（
-          {cov.since ? `${dt(new Date(cov.since * 60 * 1000), "short")} 起才有数据` : "该范围内尚无覆盖数据"}），未计入下列比例。
+          另有 {fmt(cov.legacy_unknown)} 个受审查事件由旧版本记录，没有覆盖信息（可能含非模型请求），未计入下列比例
+          {cov.since ? `；覆盖数据自 ${dt(new Date(cov.since * 60 * 1000), "short")} 起` : ""}。
         </p>
       )}
       <div className="grid gap-6 md:grid-cols-2">
@@ -124,9 +131,9 @@ function CoverageSection({ cov }: { cov: Coverage }) {
           <DonutChart items={states} center="模型请求" empty="暂无覆盖数据" />
           <div className="rounded-lg border px-4 py-3">
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              最新用户文本有效审查率
+              最新用户文本有效分类完成率
               <Hint>
-                在抽取到最新用户文本的请求中，文本未被截断且分类器给出有效结论（含命中缓存）的比例。不含没有用户文本、无法解析和审查前失败的请求。
+                在抽取到最新用户文本的请求中，文本未被截断且分类器给出有效结论（含命中缓存）的比例。分类超时、繁忙不算完成。不含没有用户文本、无法解析和审查前失败的请求。
               </Hint>
             </div>
             <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{pct(cov.user_text_ok, withText)}</div>
@@ -253,7 +260,7 @@ export function OverviewPage() {
         <TrendChart series={st.series} range={range} blockKey={blockKey} hidden={hidden} />
       </Section>
 
-      {st.coverage && <CoverageSection cov={st.coverage} />}
+      {st.coverage && <CoverageSection cov={st.coverage} mode={summary.mode} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Section title="审查判定">

@@ -36,11 +36,11 @@ export type Stats = {
   coverage: Coverage
 }
 
-// Model requests by coverage state; tracked = sum(states). untracked: guarded requests recorded
-// before coverage tracking, which carry no coverage data.
+// Model requests by coverage state (shadow/enforce only); tracked = sum(states). legacy_unknown:
+// guarded events recorded by a version without coverage data (may include non-model requests).
 export type Coverage = {
   tracked: number
-  untracked: number
+  legacy_unknown: number
   since?: number
   states: Record<string, number>
   reasons: KV[]
