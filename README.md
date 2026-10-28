@@ -257,6 +257,10 @@ cp config/policy-v1.yaml /tmp/rg/
 | `-check` | 校验配置、策略和账号文件后退出 |
 | `-new-account NAME -roles reviewer,admin` | 创建控制台具名账号：令牌输出到 stderr（只显示一次），账号文件条目输出到 stdout |
 | `-export-dataset DIR` | 把已复核样本导出为评测数据集，见下文 |
+| `-doctor` | 只读诊断：配置、策略、密钥文件权限、状态目录、运行中实例与分类器健康、上游可达性。不写文件、不改设置、不发模型请求，有 FAIL 时退出码为 1 |
+| `-doctor -doctor-probe [-probe-url URL ...]` | 另外发送一次合成的分类请求，并对每个入口地址发一次 GET，检查响应是否带 `X-Risk-Trace-Id` |
+
+`-doctor` 的每项结果是 `PASS`、`WARN`、`FAIL` 或 `NOT_VERIFIED`。入口探测只能证明被探测的那个地址经过了 Guard；"所有入口都经过 Guard"永远显示为 `NOT_VERIFIED`，需要运营者自己列出并逐个探测公开入口。Docker 部署可用 `docker exec <容器> riskguard -config /etc/riskguard/config.yaml -doctor`。
 
 管理端口 `127.0.0.1:4101` 另有 `GET /__risk/healthz`（存活）、`/__risk/readyz`（就绪与当前模式）和 `/__risk/classifier`（分类器状态）。分类器故障不影响就绪检查，避免远端故障触发重启循环。
 
