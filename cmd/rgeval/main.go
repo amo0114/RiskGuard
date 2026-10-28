@@ -32,18 +32,21 @@ import (
 )
 
 type scenario struct {
-	ID          string          `json:"id"`
-	Group       string          `json:"group"`
-	Protocol    string          `json:"protocol"`
-	Expect      string          `json:"expect"` // allow | block | review | allow_or_review | unsupported
-	Split       string          `json:"split"`
-	Body        json.RawMessage `json:"body"`
-	Raw         string          `json:"raw"`
-	ContentType string          `json:"content_type"`
-	ExpectCov   string          `json:"expect_coverage"`
-	Lang        string          `json:"lang"`
-	Wrap        string          `json:"-"`
-	Pad         *struct {
+	ID       string `json:"id"`
+	Group    string `json:"group"`
+	Protocol string `json:"protocol"`
+	Expect   string `json:"expect"` // allow | block | review | allow_or_review | unsupported
+	Split    string `json:"split"`
+	// A human label: a dataset export carries expected_action, authored sets mark "reviewed".
+	ExpectedAction string          `json:"expected_action"`
+	Reviewed       bool            `json:"reviewed"`
+	Body           json.RawMessage `json:"body"`
+	Raw            string          `json:"raw"`
+	ContentType    string          `json:"content_type"`
+	ExpectCov      string          `json:"expect_coverage"`
+	Lang           string          `json:"lang"`
+	Wrap           string          `json:"-"`
+	Pad            *struct {
 		Line  string `json:"line"`
 		Times int    `json:"times"`
 	} `json:"pad"`
@@ -53,10 +56,13 @@ type result struct {
 	ID         string   `json:"id"`
 	Group      string   `json:"group"`
 	Expect     string   `json:"expect"`
+	Split      string   `json:"split,omitempty"`
+	HumanLabel bool     `json:"human_label"`
 	Coverage   string   `json:"coverage"`
 	CovReason  string   `json:"coverage_reason,omitempty"`
 	Inspected  int      `json:"inspected_chars"`
 	Status     string   `json:"classifier_status,omitempty"`
+	Classifier string   `json:"classifier,omitempty"` // model id that produced Label/Categories
 	Label      string   `json:"label,omitempty"`
 	Categories []string `json:"categories,omitempty"`
 	Decision   string   `json:"decision"`
@@ -106,7 +112,18 @@ func main() {
 	wrap := flag.String("wrap", "", "comma-separated counterfeit-policy wrappers for expected-block scenarios, or all")
 	wrapOnly := flag.Bool("wrap-only", false, "run only the wrapped variants (originals come from a base run)")
 	split := flag.String("split", "", "only scenarios of this split (dev | test); empty runs all")
+	compareResults := flag.String("compare-results", "", "offline: re-decide this results JSONL under -base-policy and -candidate-policy (no classifier calls)")
+	basePolicy := flag.String("base-policy", "", "compare mode: current policy file")
+	candPolicy := flag.String("candidate-policy", "", "compare mode: candidate policy file")
+	reportJSON := flag.String("report-json", "", "compare mode: also write the comparison as JSON here")
 	flag.Parse()
+
+	if *compareResults != "" {
+		if *basePolicy == "" || *candPolicy == "" {
+			log.Fatal("-compare-results needs -base-policy and -candidate-policy")
+		}
+		os.Exit(runCompare(*compareResults, *basePolicy, *candPolicy, *reportJSON))
+	}
 
 	pol, err := policy.Load(*policyFile)
 	if err != nil {
@@ -287,8 +304,8 @@ func run(s scenario, cls classifier.Classifier, judge *classifier.Judge, pol *po
 		ct = "application/json"
 	}
 	sel := extract.Extract(s.Protocol, ct, "", bytes.NewReader(body(s)), b, 64<<20)
-	r := result{ID: s.ID, Group: s.Group, Expect: s.Expect, Coverage: string(sel.Coverage), CovReason: sel.Reason,
-		Inspected: sel.InspectedChars, Lang: s.Lang, Wrap: s.Wrap}
+	r := result{ID: s.ID, Group: s.Group, Expect: s.Expect, Split: s.Split, HumanLabel: s.ExpectedAction != "" || s.Reviewed,
+		Coverage: string(sel.Coverage), CovReason: sel.Reason, Inspected: sel.InspectedChars, Lang: s.Lang, Wrap: s.Wrap}
 	if r.Lang == "" {
 		r.Lang = lang(sel.Text())
 	}
@@ -308,6 +325,7 @@ func run(s scenario, cls classifier.Classifier, judge *classifier.Judge, pol *po
 		cancel()
 		d := pol.Classified(res)
 		r.Status, r.Label, r.Categories, r.MS = res.Status, res.Label, res.Categories, res.Duration.Milliseconds()
+		r.Classifier = res.ModelID
 		r.Decision, r.Reason = d.Decision, d.Reason
 	}
 	if r.Decision != "skipped" {
