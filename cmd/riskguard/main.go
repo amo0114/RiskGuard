@@ -62,10 +62,12 @@ func main() {
 	upstream, _ := url.Parse(cfg.NewAPI) // validated in config.Load
 	auditLog := audit.New(os.Stdout, sec.HMACKey)
 
-	var guard *proxy.Guard
+	// -check and -export-dataset stop before buildGuard: they validate the same policy but must
+	// not create the spool pool, whose constructor cleans the spool directory a running instance
+	// may be using.
+	var pol *policy.Policy
 	if cfg.Mode != "disabled" {
-		guard, err = buildGuard(cfg, sec, auditLog)
-		if err != nil {
+		if pol, err = loadPolicy(cfg); err != nil {
 			log.Fatalf("riskguard: %v", err)
 		}
 	}
@@ -101,6 +103,12 @@ func main() {
 		}
 		fmt.Printf("exported %d labeled samples to %s\n", n, *exportDir)
 		return
+	}
+	var guard *proxy.Guard
+	if pol != nil {
+		if guard, err = buildGuard(cfg, sec, auditLog, pol); err != nil {
+			log.Fatalf("riskguard: %v", err)
+		}
 	}
 	// A sample store that cannot open only disables collection; the Guard keeps protecting.
 	var collector *samples.Collector
@@ -238,7 +246,7 @@ func loadConsoleStats(path string) *console.Stats {
 	return stats
 }
 
-func buildGuard(cfg *config.Config, sec *config.Secrets, a *audit.Logger) (*proxy.Guard, error) {
+func loadPolicy(cfg *config.Config) (*policy.Policy, error) {
 	pol, err := policy.Load(cfg.PolicyFile)
 	if err != nil {
 		return nil, err
@@ -246,6 +254,12 @@ func buildGuard(cfg *config.Config, sec *config.Secrets, a *audit.Logger) (*prox
 	if cfg.Mode == "enforce" && strings.HasSuffix(pol.Version, "-draft") {
 		return nil, fmt.Errorf("policy %s is a draft; enforce requires an approved policy", pol.Version)
 	}
+	return pol, nil
+}
+
+// buildGuard creates the runtime resources, including the spool pool (which removes leftover
+// spool files): only for the process that will serve traffic.
+func buildGuard(cfg *config.Config, sec *config.Secrets, a *audit.Logger, pol *policy.Policy) (*proxy.Guard, error) {
 	r, g := cfg.Request, cfg.ModelGuard
 	sp, err := proxy.NewSpoolPool(r.SpoolDir, r.MemorySpoolBytes, r.SpoolMaxTotalBytes, r.SpoolMaxFiles, proxy.WithSpoolMemoryLimit(r.SpoolMaxMemoryBytes))
 	if err != nil {
