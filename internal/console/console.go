@@ -100,7 +100,8 @@ func (c *Console) Register(mux *http.ServeMux) {
 	mux.Handle("GET /console/api/dimensions", secure(c.authed(c.dimensions)))
 	mux.Handle("POST /console/api/aliases", secure(c.authed(c.require(RoleAdmin, c.setAlias))))
 	mux.Handle("GET /console/api/config", secure(c.authed(c.config)))
-	mux.Handle("POST /console/api/block-reply", secure(c.authed(c.setBlockReply)))
+	// Admin only: the switch turns 403/422 rejections into HTTP 200 replies, so it is not a read-only action.
+	mux.Handle("POST /console/api/block-reply", secure(c.authed(c.require(RoleAdmin, c.setBlockReply))))
 	mux.Handle("GET /console/api/samples", secure(c.authed(c.sampleList)))
 	mux.Handle("GET /console/api/samples/status", secure(c.authed(c.sampleStatus)))
 	mux.Handle("GET /console/api/samples/{id}", secure(c.authed(c.require(RoleReviewer, c.sampleDetail))))

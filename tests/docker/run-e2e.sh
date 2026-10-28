@@ -27,8 +27,11 @@ python3 tests/mock/mock_llama.py 18089 & lpid=$!
 mkdir -p "$w/etc" "$w/state"
 head -c 48 /dev/urandom > "$w/etc/hmac.key"; echo test-guard-key > "$w/etc/guard.key"
 TOKEN=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'); echo "$TOKEN" > "$w/etc/console.token"
+entry=$(go run ./cmd/riskguard -new-account e2e-admin -roles admin 2>"$w/acct.err"); ATOK=$(tail -n1 "$w/acct.err")
+{ echo "accounts:"; echo "$entry" | sed 's/^/  /'; } > "$w/etc/console-accounts.yaml"
 sed -e 's#127.0.0.1:4100#'$G'#; s#127.0.0.1:4101#'$A'#; s#http://127.0.0.1:4000#http://127.0.0.1:14482#' \
-    -e 's#^mode: .*#mode: "enforce"#; s#http://127.0.0.1:8088#http://127.0.0.1:18089#' config/example.yaml > "$w/etc/config.yaml"
+    -e 's#^mode: .*#mode: "enforce"#; s#http://127.0.0.1:8088#http://127.0.0.1:18089#' \
+    -e 's@^  # accounts_file:.*@  accounts_file: "/etc/riskguard/console-accounts.yaml"@' config/example.yaml > "$w/etc/config.yaml"
 { sed 's/^version: .*/version: "policy-v1-docker-e2e"/; s/^  "Violent": review .*/  "Violent": deny/' config/policy-v1.yaml
   printf '  block_replies:\n    - "⠀⣀⣤ docker-e2e"\n'; } > "$w/etc/policy-v1.yaml"
 chmod 0600 "$w"/etc/*; chown -R 65532:65532 "$w/etc" "$w/state"; chmod 0700 "$w/state"
@@ -52,7 +55,10 @@ c=$(chat "MAYBE"); [ "$c" = 422 ] && ok "review -> 422 while block reply is off"
 O="Origin: http://$A"; J='Content-Type: application/json'
 curl -s -c "$w/jar" -H "$O" -H "$J" "http://$A/console/api/login" -d "{\"token\":\"$TOKEN\"}" >/dev/null
 c=$(curl -s -o /dev/null -w '%{http_code}' -b "$w/jar" -H "$O" -H "$J" "http://$A/console/api/block-reply" -d '{"enabled":true}')
-[ "$c" = 200 ] && ok "console switch enabled" || bad "console switch $c"
+[ "$c" = 403 ] && ok "shared token cannot flip block reply" || bad "shared token switch $c"
+curl -s -c "$w/ajar" -H "$O" -H "$J" "http://$A/console/api/login" -d "{\"token\":\"$ATOK\"}" >/dev/null
+c=$(curl -s -o /dev/null -w '%{http_code}' -b "$w/ajar" -H "$O" -H "$J" "http://$A/console/api/block-reply" -d '{"enabled":true}')
+[ "$c" = 200 ] && ok "admin enabled console switch" || bad "console switch $c"
 c=$(chat "BLOCKME reply"); [ "$c" = 200 ] && grep -q 'docker-e2e' "$w/out" && [ "$(hits)" = $((h0+1)) ] \
   && ok "deny -> 200 block reply, not forwarded" || bad "block reply $c $(cat "$w/out")"
 
@@ -65,6 +71,6 @@ code=$(docker inspect -f '{{.State.ExitCode}}' "$cid")
 [ "$code" = 0 ] && [ "$took" -lt 35 ] && ok "graceful stop: exit 0 in ${took}s" || bad "stop exit=$code took=${took}s"
 dc logs --no-log-prefix > "$w/logs" 2>&1
 n=$(grep -c '"trace_id"' "$w/logs" || true)
-if grep -qE "sk-test|BLOCKME|unit test|$TOKEN" "$w/logs"; then bad "container logs leak key or prompt text"; else ok "container logs: $n audit events, no key/prompt text"; fi
+if grep -qE "sk-test|BLOCKME|unit test|$TOKEN|$ATOK" "$w/logs"; then bad "container logs leak key or prompt text"; else ok "container logs: $n audit events, no key/prompt text"; fi
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

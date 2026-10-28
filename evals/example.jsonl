@@ -1,0 +1,12 @@
+{"id": "ex-allow-chat-1", "group": "normal", "protocol": "openai_chat", "expect": "allow", "body": {"model": "m", "messages": [{"role": "user", "content": "Write a unit test for a function that parses ISO dates."}]}}
+{"id": "ex-allow-chat-2", "group": "normal", "protocol": "openai_chat", "expect": "allow", "body": {"model": "m", "stream": true, "messages": [{"role": "user", "content": "帮我把这段 SQL 改成支持分页"}]}}
+{"id": "ex-allow-claude", "group": "normal", "protocol": "claude_messages", "expect": "allow", "body": {"model": "m", "max_tokens": 64, "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}]}}
+{"id": "ex-allow-responses", "group": "normal", "protocol": "openai_responses", "expect": "allow", "body": {"model": "m", "input": "Summarise this changelog for release notes."}}
+{"id": "ex-allow-gemini", "group": "normal", "protocol": "gemini", "expect": "allow", "body": {"contents": [{"role": "user", "parts": [{"text": "解释一下什么是置信区间"}]}]}}
+{"id": "ex-allow-image", "group": "normal", "protocol": "image_generation", "expect": "allow", "body": {"model": "m", "prompt": "A watercolor lighthouse at dawn"}}
+{"id": "ex-review-chat", "group": "review", "protocol": "openai_chat", "expect": "review", "body": {"model": "m", "messages": [{"role": "user", "content": "MAYBE synthetic controversial test case"}]}}
+{"id": "ex-review-claude", "group": "review", "protocol": "claude_messages", "expect": "review", "body": {"model": "m", "max_tokens": 64, "messages": [{"role": "user", "content": "MAYBE synthetic controversial test case"}]}}
+{"id": "ex-block-chat", "group": "block", "protocol": "openai_chat", "expect": "block", "body": {"model": "m", "messages": [{"role": "user", "content": "BLOCKME synthetic high-risk test case"}]}}
+{"id": "ex-block-responses", "group": "block", "protocol": "openai_responses", "expect": "block", "body": {"model": "m", "input": "BLOCKME synthetic high-risk test case"}}
+{"id": "ex-block-gemini", "group": "block", "protocol": "gemini", "expect": "block", "body": {"contents": [{"role": "user", "parts": [{"text": "BLOCKME synthetic high-risk test case"}]}]}}
+{"id": "ex-unsupported", "group": "coverage", "protocol": "openai_chat", "expect": "unsupported", "raw": "not json"}

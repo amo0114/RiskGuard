@@ -223,13 +223,24 @@ func TestBlockReplySwitch(t *testing.T) {
 	}
 	var on atomic.Bool
 	pol := &policy.Policy{Version: "p1"}
+	revTok, revEntry, _ := NewAccount("rev", []string{RoleReviewer})
+	admTok, admEntry, _ := NewAccount("adm", []string{RoleAdmin})
+	acc := filepath.Join(t.TempDir(), "a.yaml")
+	os.WriteFile(acc, []byte("accounts:\n"+indent(revEntry)+indent(admEntry)), 0o600)
+	accs, err := LoadAccounts(acc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	New(st, []byte(token), time.Hour, Info{Mode: "enforce", StartedAt: time.Now(), AuditFailures: func() int { return 0 },
-		Policy: pol, BlockReply: &on}).Register(mux)
+		Policy: pol, BlockReply: &on, Accounts: accs}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	ck := post(t, srv.URL+"/console/api/login", `{"token":"`+token+`"}`, map[string]string{"Origin": srv.URL}).Cookies()[0]
-	set := func(body string, hdr map[string]string) int {
+	login := func(tok string) *http.Cookie {
+		return post(t, srv.URL+"/console/api/login", `{"token":"`+tok+`"}`, map[string]string{"Origin": srv.URL}).Cookies()[0]
+	}
+	ck := login(admTok)
+	setAs := func(ck *http.Cookie, body string, hdr map[string]string) int {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/console/api/block-reply", strings.NewReader(body))
 		req.AddCookie(ck)
 		for k, v := range hdr {
@@ -242,6 +253,7 @@ func TestBlockReplySwitch(t *testing.T) {
 		res.Body.Close()
 		return res.StatusCode
 	}
+	set := func(body string, hdr map[string]string) int { return setAs(ck, body, hdr) }
 	same := map[string]string{"Origin": srv.URL}
 
 	if code := set(`{"enabled":true}`, same); code != 409 || on.Load() {
@@ -253,6 +265,12 @@ func TestBlockReplySwitch(t *testing.T) {
 	}
 	if code := set(`{}`, same); code != 400 {
 		t.Fatalf("missing enabled: %d", code)
+	}
+	// The shared token is read-only and a reviewer only labels samples: neither may flip it.
+	for name, other := range map[string]*http.Cookie{"shared token": login(token), "reviewer": login(revTok)} {
+		if code := setAs(other, `{"enabled":true}`, same); code != 403 || on.Load() {
+			t.Fatalf("%s: %d %v", name, code, on.Load())
+		}
 	}
 	if code := set(`{"enabled":true}`, same); code != 200 || !on.Load() {
 		t.Fatalf("enable: %d %v", code, on.Load())

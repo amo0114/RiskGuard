@@ -57,6 +57,7 @@ function BlockReplySwitch() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
   const br = config?.block_reply
+  const admin = config?.me.roles.includes("admin") ?? false
   if (!br) return null
 
   const targetState = !br.enabled
@@ -84,7 +85,7 @@ function BlockReplySwitch() {
           <Button
             size="sm"
             variant={br.enabled ? "outline" : "default"}
-            disabled={!br.available || busy}
+            disabled={!br.available || !admin || busy}
             onClick={() => {
               setError("")
               setConfirmOpen(true)
@@ -103,6 +104,7 @@ function BlockReplySwitch() {
               ? `开启后，文本生成类接口（OpenAI Chat、Responses、Claude Messages、Gemini、旧版 Completions/Edits）被拦截时返回 200 的正常回复，内容轮流取自策略中的 ${fmt(br.count)} 条自定义回复；其他接口和故障仍返回错误。${summary?.mode === "enforce" ? "" : "当前不是拦截模式。"}`
               : "当前策略未配置自定义回复（enforce.block_replies），无法开启。"}
           </p>
+          {br.available && !admin && <p className="text-xs text-muted-foreground">只有管理员账号可以切换。</p>}
           {error && <p className="text-xs text-destructive">操作异常：{error}</p>}
         </div>
       </Section>

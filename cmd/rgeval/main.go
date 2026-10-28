@@ -2,11 +2,11 @@
 // the Guard uses, and reports per-scenario results without any prompt text.
 //
 //	rgeval -endpoint http://127.0.0.1:8088 -key-file k -policy config/policy-v1.yaml \
-//	       -deny "Violent,Sexual Content or Sexual Acts" -out results.jsonl evals/scenarios.jsonl private/evals/xstest.jsonl
+//	       -deny "Violent,Sexual Content or Sexual Acts" -out results.jsonl evals/example.jsonl my-scenarios.jsonl
 //
 // With -aux-endpoint every scenario is also put to a System One judge (Jev wire format) and its
 // probabilities are recorded next to the classifier result; -wrap adds counterfeit-policy variants
-// of every expected-block scenario; evals/aux_report.py turns the results into comparison tables.
+// of every expected-block scenario.
 package main
 
 import (

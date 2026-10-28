@@ -1,9 +1,10 @@
 # policy-v1 — DRAFT, not approved for enforce.
 #
-# Classifier labels/categories are evidence; this file decides. Until the W05 evaluation
-# (evals/scenarios.jsonl, >=60 human-reviewed cases) passes and the user approves, no category is
-# mapped to "deny": every Unsafe result is "review". Flipping a category to "deny" is a policy
-# change that needs its own approval and evaluation evidence.
+# Classifier labels/categories are evidence; this file decides. Until a frozen evaluation set passes
+# the acceptance gates (>=300 independent normal and >=100 high-risk cases, reported with
+# confidence bounds; a few dozen cases cannot bound a 1% false-block rate) and the operator
+# approves, no category is mapped to "deny": every Unsafe result is "review". Flipping a category
+# to "deny" is a policy change that needs its own approval and evaluation evidence.
 version: "policy-v1-draft"
 
 labels:
@@ -11,7 +12,7 @@ labels:
   Controversial: review
   Unknown: review            # unparseable/unknown classifier output is never treated as Safe
 
-# Qwen3Guard-Gen official categories. Evidence: docs/reports/w05-guard-model-eval.md
+# Qwen3Guard-Gen official categories. Evidence: an internal, unpublished evaluation
 # (local Qwen3Guard-Gen-0.6B Q4_K_M, 46 authored + 450 XSTest cases). Hits are
 # [on expected-allow, on expected-block] for Unsafe labels.
 unsafe_categories:

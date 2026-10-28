@@ -1,5 +1,4 @@
-// Package routes classifies an inbound request against the New API v1.0.0-rc.46 route table
-// (docs/ops/01-port-and-route-map.md, G0 01-route-matrix.md R01–R30).
+// Package routes classifies an inbound request against the New API v1.0.0-rc.46 route table.
 //
 // Classification uses r.URL.Path (the decoded path) because that is what gin matches on: a request
 // for /v1/chat%2Fcompletions reaches the same handler as /v1/chat/completions.

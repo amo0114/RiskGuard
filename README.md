@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/amo0114/RiskGuard/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/amo0114/RiskGuard/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Go 1.26" src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black">
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-pure_Go-003B57?style=flat-square&logo=sqlite&logoColor=white">
   <img alt="Qwen3Guard" src="https://img.shields.io/badge/Classifier-Qwen3Guard--Gen-7B5CFA?style=flat-square">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-distroless-2496ED?style=flat-square&logo=docker&logoColor=white">
-  <img alt="License: Private" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square">
+  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square">
 </p>
 
 <p align="center">
@@ -23,7 +24,7 @@
   <a href="#工作原理">工作原理</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#部署">部署</a> ·
-  <a href="#文档">文档</a>
+  <a href="#许可证">许可证</a>
 </p>
 
 <p align="center">
@@ -57,10 +58,10 @@ Risk Guard 在请求到达 New API **之前**做一次内容审查：
 | **网关运营者** | 接入后客户端、Key 和渠道都不用改；先用影子模式观察，再按协议逐步开启拦截，随时回退 |
 | **安全/合规负责人** | 用策略文件定义哪些风险类别直接拒绝、哪些转人工；看每把 Key、每个客户端的风险分布 |
 | **复核员** | 在控制台逐条查看分类器实际看到的脱敏文本，标注"应放行/应复核/应拒绝"，积累验收数据 |
-| **API 用户** | 正常请求无感知；被拦截时收到明确的错误码，或一段以普通回复形式返回的提示 |
+| **API 用户** | 正常请求照常返回，只多一次本地缓冲与抽取的开销；被拦截时收到明确的错误码，或一段以普通回复形式返回的提示 |
 
 > [!IMPORTANT]
-> 仓库自带的策略 `config/policy-v1.yaml` 是**草案**，拦截模式会拒绝加载草案策略。正式开启拦截前，需要用冻结数据集评测达标（误拦率 ≤1%、高风险召回 ≥90%、额外 P95 ≤3 秒），并经过书面批准。当前进度见[交付状态](docs/reports/status.md)。
+> 仓库自带的策略 `config/policy-v1.yaml` 是**草案**，拦截模式会拒绝加载草案策略。正式开启拦截前，需要用冻结数据集评测达标（误拦率 ≤1%、高风险召回 ≥90%、额外 P95 ≤3 秒），并经过书面批准。仓库目前不附带满足这一门槛的公开评测证据，适合先以影子模式试用。
 
 ## 功能
 
@@ -154,14 +155,14 @@ sequenceDiagram
   G->>G: 写审计日志、更新统计、按抽样交给样本采集
 ```
 
-影子模式下总是走"放行"分支，审计里会记下"如果开启拦截，这个请求会被拦"（预计拦截）。拦截模式下，分类器超时或不可用时返回 503，不会默认当作安全放行。
+影子模式下分类在转发之后异步进行，总是走"放行"分支，审计里会记下"如果开启拦截，这个请求会被拦"（预计拦截）。但请求体的缓冲和文本抽取仍在转发之前完成，大请求会因此多一些延迟。拦截模式下，分类器超时或不可用时返回 503，不会默认当作安全放行。
 
 ### 三种运行模式
 
 | 模式 | 是否审查 | 是否拦截 | 适合 |
 | :--- | :---: | :---: | :--- |
 | `disabled` | ✗ | ✗ | 只做透明代理，用于排障或紧急回退 |
-| `shadow` | ✓ | ✗ | 上线初期：统计"预计拦截"，积累误判样本，业务零影响 |
+| `shadow` | ✓ | ✗ | 上线初期：统计"预计拦截"，积累误判样本。不等分类结果、不拦截，但请求体仍要先缓冲和抽取，本地缓冲读写出错时也会返回 503 |
 | `enforce` | ✓ | ✓ | 策略经评测和批准后，正式拦截高风险请求 |
 
 ### 从观察到正式拦截
@@ -181,12 +182,15 @@ flowchart LR
 
 | 入口 | 处理方式 |
 | :--- | :--- |
-| OpenAI Chat / Completions / Edits / Responses、Claude Messages、Gemini | 审查最新用户输入，system 和历史按预算处理 |
+| OpenAI Chat / Completions / Edits / Responses、Claude Messages、Gemini | 审查最新用户输入；system、历史、工具结果默认不送审，记为部分覆盖 |
 | 图像、语音、视频生成，Midjourney、Suno | 审查请求里的提示词字段；只有媒体、没有文字的请求在拦截模式下拒绝 |
 | 工具搜索、moderations | 审查文本 |
 | embeddings、rerank | 不生成内容，按策略声明为免审 |
 | 文件上传（multipart）、WebSocket、任务插件、未知接口 | 无法审查：影子模式记为覆盖缺口，拦截模式默认拒绝 |
 | `/api/*` 管理接口、静态页面 | 直接透传，不审查 |
+
+> [!WARNING]
+> **保护范围**：Risk Guard 只保证它选中送审的那部分输入经过审查，不保证一次请求里的全部内容都符合策略。默认配置只送审最新一轮用户输入（`primary_budget_bytes: 1536`、`context_budget_bytes: 0`），超出预算的部分会被截断；system 指令、历史轮次、工具结果和媒体都不送审，审计里记为 `partial_context`，仍按已审查部分的结果放行。没有可审查文本的请求（例如只带工具结果的轮次）按策略直接转发。每个请求实际的覆盖情况都写在审计的 `coverage` 和 `coverage_reason` 字段里。此外，只有经过 Guard 的流量才受保护：任何能绕过它直达上游的域名、端口或服务都不在保护范围内。
 
 ## 控制台
 
@@ -214,15 +218,15 @@ flowchart LR
 | :--- | :--- |
 | 共享令牌 | 只能看元数据和统计，看不到任何正文 |
 | 复核员（`reviewer`） | 查看脱敏样本正文、提交复核 |
-| 管理员（`admin`） | 另外可以删除样本、给 Key 指纹命名 |
+| 管理员（`admin`） | 另外可以删除样本、给 Key 指纹命名、切换拦截回复 |
 
 ## 快速开始
 
 只需要 Go ≥ 1.26.10。控制台前端已经打包进仓库，不用装 Node。
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/risk-guard.git
-cd risk-guard
+git clone https://github.com/amo0114/RiskGuard.git
+cd RiskGuard
 CGO_ENABLED=0 go build -trimpath -o dist/riskguard ./cmd/riskguard
 
 # 本地示例配置与密钥（仅用于试用）
@@ -242,7 +246,7 @@ cp config/policy-v1.yaml /tmp/rg/
 | `http://127.0.0.1:4101/console/` | 控制台，用 `/tmp/rg/console.token` 登录 |
 | `http://127.0.0.1:4101/__risk/readyz` | 就绪检查 |
 
-没有真实分类器时，可以用 `python3 tests/w08/mock_llama.py 8088` 起一个模拟服务（文本含 `BLOCKME` 判为不安全，含 `MAYBE` 判为有争议），把配置里的 `model_guard.endpoint` 改成 `http://127.0.0.1:8088`，`guard.key` 内容改成 `test-guard-key`。
+没有真实分类器时，可以用 `python3 tests/mock/mock_llama.py 8088` 起一个模拟服务（文本含 `BLOCKME` 判为不安全，含 `MAYBE` 判为有争议），把配置里的 `model_guard.endpoint` 改成 `http://127.0.0.1:8088`，`guard.key` 内容改成 `test-guard-key`。
 
 <details>
 <summary><b>命令行参数</b></summary>
@@ -301,8 +305,6 @@ enforce:
 
 ## 样本复核与数据集
 
-完整设计见 [样本采集与复核设计](docs/design/guard-sample-collection-review-v1.md)。
-
 - **采什么**：一部分是请求到达时随机抽取的，所以分类器放行的内容也能看到；另一部分是待复核、拒绝、故障和未覆盖的请求。只保存分类器实际看到的那段文字，不保存完整对话、附件和模型回复。
 - **怎么存**：先脱敏 API Key、Bearer/JWT、私钥、URL 凭据、secret 字段、邮箱与手机号，再用 AES-256-GCM 加密写入本地 SQLite。正文保留 7 天，标签保留 30 天，访问记录保留 90 天。
 - **怎么复核**：复核员给每条样本标注期望动作和风险类别，也可以标"上下文不足"或"有争议"。标注只追加、不覆盖，多人同时操作有冲突检测。
@@ -321,8 +323,15 @@ riskguard -config /etc/riskguard/config.yaml -export-dataset /var/lib/riskguard/
 ### 离线评测
 
 ```bash
+# 用模拟分类器跑仓库自带的合成示例集（12 条），验证评测链路
+python3 tests/mock/mock_llama.py 8088 &
+echo test-guard-key > /tmp/rg/guard.key
+go run ./cmd/rgeval -endpoint http://127.0.0.1:8088 -key-file /tmp/rg/guard.key \
+  -policy config/policy-v1.yaml -deny Violent evals/example.jsonl
+
+# 用真实分类器跑自己导出的数据集的 test 部分
 go run ./cmd/rgeval -endpoint http://127.0.0.1:8088 -model Qwen3Guard-Gen-8B -key-file k \
-  -policy config/policy-v1.yaml -split test -out results.jsonl evals/scenarios.jsonl export/scenarios.jsonl
+  -policy config/policy-v1.yaml -split test -out results.jsonl export/scenarios.jsonl
 ```
 
 `rgeval` 用和网关完全相同的抽取、分类、策略代码运行场景集，输出不含正文。报告内容：
@@ -396,6 +405,7 @@ risk-guard/
 │   └── config/         # 配置加载与校验
 ├── web/                # 控制台前端（React · Base UI · Tailwind · Vite）
 ├── config/             # 示例配置与策略
+├── evals/              # 合成示例评测集（rgeval 场景格式）
 ├── deployments/        # Docker Compose 部署配置与 systemd 示例
 └── tests/              # 端到端测试、基准与本地 Mock 服务
 ```
