@@ -36,8 +36,11 @@ type Selection struct {
 	HasMedia       bool
 	HasToolResults bool
 	HasSystem      bool // system/instructions present but not (fully) selected
-	Truncated      bool
-	Model          string // top-level "model" (first 64 bytes), for audit grouping only
+	Truncated      bool // any selected text was cut to its budget
+	// PrimaryTruncated: the latest user text itself was cut. Truncated alone cannot tell, since
+	// the system context budget can also truncate.
+	PrimaryTruncated bool
+	Model            string // top-level "model" (first 64 bytes), for audit grouping only
 }
 
 // Text is what the classifier receives.
@@ -446,6 +449,7 @@ func (t *turns) selection() Selection {
 	if user != nil {
 		s.Primary = user.String()
 		s.Truncated = user.Truncated()
+		s.PrimaryTruncated = s.Truncated
 	}
 	if t.system != nil && t.system.Len() > 0 {
 		if t.b.Context == 0 {

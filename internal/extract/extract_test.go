@@ -47,6 +47,18 @@ func TestOpenAIChatSingleTurnIsFull(t *testing.T) {
 	}
 }
 
+func TestPrimaryTruncatedOnlyForUserText(t *testing.T) {
+	long := strings.Repeat("x", 5000) // over both the primary and the context budget
+	s := ex(t, "openai_chat", `{"messages":[{"role":"system","content":"`+long+`"},{"role":"user","content":"hello"}]}`)
+	if !s.Truncated || s.PrimaryTruncated || s.Reason != "TRUNCATED" {
+		t.Errorf("long system, short user: %+v", s.Reason)
+	}
+	s = ex(t, "openai_chat", `{"messages":[{"role":"user","content":"`+long+`"}]}`)
+	if !s.Truncated || !s.PrimaryTruncated {
+		t.Errorf("long user text: truncated=%v primary=%v", s.Truncated, s.PrimaryTruncated)
+	}
+}
+
 func TestOpenAIChatPartsAndMedia(t *testing.T) {
 	s := ex(t, "openai_chat", `{"messages":[{"content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}},{"text":"this","type":"text"}],"role":"user"}]}`)
 	if s.Primary != "describe\nthis" || !s.HasMedia || s.Coverage != Partial || s.Reason != "MEDIA_NOT_INSPECTED" {

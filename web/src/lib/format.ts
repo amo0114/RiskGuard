@@ -79,11 +79,21 @@ export const TEXT_PROTOCOLS = new Set([
 ])
 
 export const COVERAGE: Record<string, string> = {
-  full_selected_inputs: "完整审查",
-  partial_context: "部分审查",
+  full_selected_inputs: "选定输入完整提取",
+  partial_context: "部分内容未纳入检查",
   unsupported: "未覆盖",
   t0_only: "免审查",
 }
+
+// One state per model request (console stats); colors follow DECISIONS.
+export const COVERAGE_STATES: Record<string, { name: string; hint: string; color: string }> = {
+  full_selected_inputs: { name: "选定输入完整提取", hint: "约定送检的输入全部提取；分类是否成功另看", color: "var(--chart-2)" },
+  partial_context: { name: "部分内容未纳入检查", hint: "历史、系统提示词、媒体未送检，或内容被截断", color: "var(--chart-3)" },
+  unsupported: { name: "未覆盖", hint: "无法审查：接口未纳入、无可审查文本或请求体无法解析", color: "var(--chart-4)" },
+  exempt: { name: "已批准免审", hint: "策略声明的免审接口或覆盖例外", color: "var(--chart-1)" },
+  not_inspected: { name: "审查前拒绝或失败", hint: "限流、缓冲不足、请求体过大等，尚未开始审查", color: "var(--muted-foreground)" },
+}
+export const COVERAGE_STATE_ORDER = ["full_selected_inputs", "partial_context", "unsupported", "exempt", "not_inspected"]
 
 export const REASONS: Record<string, string> = {
   CLASSIFIER_SAFE: "分类结果为安全",

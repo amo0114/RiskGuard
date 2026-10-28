@@ -33,7 +33,11 @@ type Event struct {
 	ReasonCode     string `json:"reason_code,omitempty"`
 	Coverage       string `json:"coverage,omitempty"`
 	// CoverageReason explains partial coverage (TRUNCATED, HISTORY_NOT_INSPECTED, ...).
-	CoverageReason   string `json:"coverage_reason,omitempty"`
+	// It is the first matching reason only; e.g. a truncated turn with history says TRUNCATED.
+	CoverageReason string `json:"coverage_reason,omitempty"`
+	// UserText is the state of the latest user text after extraction: complete | truncated |
+	// absent. Empty when extraction did not run or could not parse the body.
+	UserText         string `json:"user_text,omitempty"`
 	InspectedChars   int    `json:"inspected_chars,omitempty"`
 	Classifier       string `json:"classifier,omitempty"`
 	ClassifierStatus string `json:"classifier_status,omitempty"`

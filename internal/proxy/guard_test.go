@@ -853,3 +853,29 @@ func TestClassifierRetryWithinTimeout(t *testing.T) {
 		t.Errorf("retried with <1s left: %+v calls=%d", res, c.calls.Load())
 	}
 }
+
+func TestUserTextStateSameInShadowAndEnforce(t *testing.T) {
+	long := strings.Repeat("refactor this function please ", 200) // > 3072-byte primary budget
+	history := `{"model":"m","messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}]}`
+	cases := []struct {
+		name, body, cov, covReason, userText string
+	}{
+		{"single turn", chatBody("hello"), "full_selected_inputs", "", "complete"},
+		// Partial because of history, yet the latest user text was inspected whole.
+		{"history", history, "partial_context", "HISTORY_NOT_INSPECTED", "complete"},
+		{"truncated", chatBody(long), "partial_context", "TRUNCATED", "truncated"},
+		{"no user text", `{"model":"m","messages":[]}`, "unsupported", "", "absent"},
+		{"unparseable", `{"model":`, "unsupported", "", ""},
+	}
+	for _, mode := range []string{"shadow", "enforce"} {
+		h := newHarnessMode(t, mode, 50<<20, testGuard(t, safeClassifier()))
+		for i, c := range cases {
+			post(t, h.guard.URL+"/v1/chat/completions", c.body)
+			waitLines(t, h, i+1)
+			ev := lastEvent(t, h)
+			if ev.Coverage != c.cov || ev.CoverageReason != c.covReason || ev.UserText != c.userText {
+				t.Errorf("%s/%s: coverage=%s reason=%s user_text=%q", mode, c.name, ev.Coverage, ev.CoverageReason, ev.UserText)
+			}
+		}
+	}
+}

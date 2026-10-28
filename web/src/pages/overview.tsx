@@ -5,9 +5,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Hint, PageHeader, Section } from "@/components/console/bits"
 import { DonutChart, RankList, TrendChart, type Slice, type TrendKey } from "@/components/console/charts"
 import { cn } from "@/lib/utils"
-import { big, bound, catName, DECISIONS, fmt, LABEL_ORDER, LABELS, pct, RANGE_NAMES, reasonName } from "@/lib/format"
+import {
+  big,
+  bound,
+  catName,
+  COVERAGE_STATE_ORDER,
+  COVERAGE_STATES,
+  DECISIONS,
+  dt,
+  fmt,
+  LABEL_ORDER,
+  LABELS,
+  pct,
+  RANGE_NAMES,
+  reasonName,
+} from "@/lib/format"
 import { useStore } from "@/lib/store"
-import type { Summary } from "@/lib/types"
+import type { Coverage, Summary } from "@/lib/types"
 
 export function ModeAlert({ mode }: { mode: Summary["mode"] }) {
   if (mode === "enforce") return null
@@ -73,6 +87,67 @@ function Kpi({
         <div className="mt-1 text-xs text-muted-foreground [&_b]:font-medium [&_b]:text-foreground">{foot}</div>
       </CardContent>
     </Card>
+  )
+}
+
+function CoverageSection({ cov, mode }: { cov: Coverage; mode: Summary["mode"] }) {
+  if (mode === "disabled") {
+    return (
+      <Section title="审查覆盖">
+        <p className="text-sm text-muted-foreground">审查已停用，不计算覆盖率。</p>
+      </Section>
+    )
+  }
+  const states: Slice[] = COVERAGE_STATE_ORDER.filter((k) => cov.states[k]).map((k) => ({
+    key: k,
+    name: COVERAGE_STATES[k].name,
+    color: COVERAGE_STATES[k].color,
+    count: cov.states[k],
+  }))
+  // Approved exemptions are a policy choice, not a gap.
+  const reasons = cov.reasons
+    .filter((r) => !r.key.startsWith("exempt:"))
+    .slice(0, 8)
+    .map((r) => {
+      const [state, code] = r.key.split(":")
+      return { name: `${COVERAGE_STATES[state]?.name ?? state} · ${reasonName(code)}`, count: r.count }
+    })
+  const complete = cov.user_text.complete ?? 0
+  const truncated = cov.user_text.truncated ?? 0
+  const withText = complete + truncated
+  return (
+    <Section
+      title="审查覆盖"
+      hint="表示送检内容的完整程度，不等于分类器成功率，更不等于风险识别准确率。每个模型请求只计一种状态"
+    >
+      {cov.legacy_unknown > 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          另有 {fmt(cov.legacy_unknown)} 个受审查事件由旧版本记录，没有覆盖信息（可能含非模型请求），未计入下列比例
+          {cov.since ? `；覆盖数据自 ${dt(new Date(cov.since * 60 * 1000), "short")} 起` : ""}。
+        </p>
+      )}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="flex flex-col gap-4">
+          <DonutChart items={states} center="模型请求" empty="暂无覆盖数据" />
+          <div className="rounded-lg border px-4 py-3">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              最新用户文本有效分类完成率
+              <Hint>
+                在抽取到最新用户文本的请求中，文本未被截断且分类器给出有效结论（含命中缓存）的比例。分类超时、繁忙不算完成。不含没有用户文本、无法解析和审查前失败的请求。
+              </Hint>
+            </div>
+            <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{pct(cov.user_text_ok, withText)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {fmt(cov.user_text_ok)} / {fmt(withText)}：完整 {fmt(complete)}，截断 {fmt(truncated)}，无用户文本 {fmt(cov.user_text.absent ?? 0)}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="text-sm text-muted-foreground">主要覆盖缺口原因（每个请求只记第一个原因）</div>
+          <RankList items={reasons} color="var(--chart-3)" empty="没有覆盖缺口" />
+        </div>
+      </div>
+    </Section>
   )
 }
 
@@ -184,6 +259,8 @@ export function OverviewPage() {
       >
         <TrendChart series={st.series} range={range} blockKey={blockKey} hidden={hidden} />
       </Section>
+
+      {st.coverage && <CoverageSection cov={st.coverage} mode={summary.mode} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Section title="审查判定">
